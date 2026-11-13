@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">nft-tag</string>
+    <string name="noise_channel_name">White noise</string>
+    <string name="noise_channel_desc">Shows while noise is playing so it can keep running.</string>
+</resources>
