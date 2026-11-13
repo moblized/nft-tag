@@ -1,8 +1,7 @@
 package org.moblized.nfttag
 
-import android.app.PendingIntent
+import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.os.Build
@@ -10,7 +9,6 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -27,13 +25,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,7 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import org.moblized.nfttag.ui.NftTagTheme
 
 class MainActivity : ComponentActivity() {
@@ -55,17 +50,12 @@ class MainActivity : ComponentActivity() {
     private val pairingArmed = mutableStateOf(false)
     private val themeMode = mutableStateOf(ThemeMode.SYSTEM)
 
-    private val notifPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         pairedUid.value = prefs.pairedUid
         themeMode.value = prefs.themeMode
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
-
-        maybeRequestNotifications()
 
         setContent {
             NftTagTheme(themeMode.value) {
@@ -82,6 +72,7 @@ class MainActivity : ComponentActivity() {
                         prefs.themeMode = it
                         themeMode.value = it
                     },
+                    onTrigger = { triggerChroma(prefs.presetChoice, prefs.sleepMinutes) },
                 )
             }
         }
@@ -98,11 +89,11 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         val adapter = nfcAdapter ?: return
-        val pi = PendingIntent.getActivity(
+        val pi = android.app.PendingIntent.getActivity(
             this, 0,
             Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                PendingIntent.FLAG_MUTABLE else 0
+                android.app.PendingIntent.FLAG_MUTABLE else 0
         )
         runCatching { adapter.enableForegroundDispatch(this, pi, null, null) }
     }
@@ -144,25 +135,42 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        NoiseService.start(this, prefs.noiseColor, prefs.gain, prefs.sleepMinutes)
+        triggerChroma(prefs.presetChoice, prefs.sleepMinutes)
     }
 
-    private fun maybeRequestNotifications() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val granted = ContextCompat.checkSelfPermission(
-                this, android.Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!granted) notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    /** Hand off to ChromaNoise's no-UI entry point to actually make the sound. */
+    private fun triggerChroma(preset: String, minutes: Int) {
+        val i = Intent().apply {
+            setClassName(CHROMA_PKG, CHROMA_TRIGGER)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (preset.isNotEmpty()) putExtra(EXTRA_PRESET, preset)
+            if (minutes > 0) putExtra(EXTRA_TIMER, minutes)
+        }
+        try {
+            startActivity(i)
+        } catch (_: ActivityNotFoundException) {
+            toast("ChromaNoise isn't installed")
         }
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+
+    companion object {
+        const val CHROMA_PKG = "app.chromanoise"
+        const val CHROMA_TRIGGER = "app.chromanoise.playback.PlayTriggerActivity"
+        const val EXTRA_PRESET = "app.chromanoise.extra.PRESET"
+        const val EXTRA_TIMER = "app.chromanoise.extra.TIMER_MINUTES"
+    }
 }
 
 private fun ByteArray.toHex(): String =
     joinToString("") { "%02X".format(it) }
 
 private val SLEEP_OPTIONS = listOf(0, 15, 30, 45, 60, 90)
+
+// "" = whatever ChromaNoise played last; the rest are its built-in presets.
+private val PRESETS = listOf("" to "Last used") +
+    listOf("White", "Pink", "Brown", "Grey", "Blue", "Violet").map { it to it }
 
 @Composable
 private fun AppScreen(
@@ -172,12 +180,9 @@ private fun AppScreen(
     onArmPairing: () -> Unit,
     onForgetTag: () -> Unit,
     onThemeChange: (ThemeMode) -> Unit,
+    onTrigger: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val running = NoiseService.running
-
-    var color by remember { mutableStateOf(prefs.noiseColor) }
-    var gain by remember { mutableFloatStateOf(prefs.gain) }
+    var preset by remember { mutableStateOf(prefs.presetChoice) }
     var sleep by remember { mutableIntStateOf(prefs.sleepMinutes) }
     var lockToTag by remember { mutableStateOf(prefs.lockToTag) }
 
@@ -192,52 +197,32 @@ private fun AppScreen(
         ) {
             Text("nft-tag", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(
-                "Tap your bedside tag to start white noise. Screen has to be on, " +
-                    "so tap as you set the phone down to charge.",
+                "Tap your bedside tag to start white noise in ChromaNoise. The screen has to " +
+                    "be on, so tap as you set the phone down to charge.",
                 style = MaterialTheme.typography.bodyMedium,
             )
 
-            // Play / stop
             Button(
-                onClick = {
-                    if (running) NoiseService.stop(context)
-                    else NoiseService.start(context, color, gain, sleep)
-                },
+                onClick = onTrigger,
                 modifier = Modifier.fillMaxWidth().height(64.dp),
             ) {
-                Text(if (running) "Stop" else "Play now", style = MaterialTheme.typography.titleMedium)
+                Text("Test trigger", style = MaterialTheme.typography.titleMedium)
             }
 
-            // Noise color
-            Section("Sound") {
+            // Which sound ChromaNoise should play
+            Section("Play") {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NoiseColor.entries.forEach { c ->
+                    PRESETS.forEach { (value, label) ->
                         FilterChip(
-                            selected = color == c,
-                            onClick = {
-                                color = c
-                                prefs.noiseColor = c
-                                if (running) NoiseService.start(context, c, gain, sleep)
-                            },
-                            label = { Text(c.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                            selected = preset == value,
+                            onClick = { preset = value; prefs.presetChoice = value },
+                            label = { Text(label) },
                         )
                     }
                 }
             }
 
-            // Volume
-            Section("Volume") {
-                Slider(
-                    value = gain,
-                    onValueChange = { gain = it },
-                    onValueChangeFinished = {
-                        prefs.gain = gain
-                        if (running) NoiseService.start(context, color, gain, sleep)
-                    },
-                )
-            }
-
-            // Sleep timer
+            // Sleep timer handed to ChromaNoise
             Section("Sleep timer") {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SLEEP_OPTIONS.forEach { m ->

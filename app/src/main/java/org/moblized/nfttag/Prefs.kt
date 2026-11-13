@@ -17,16 +17,15 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_LOCK, false)
         set(value) = sp.edit().putBoolean(KEY_LOCK, value).apply()
 
-    var noiseColor: NoiseColor
-        get() = runCatching { NoiseColor.valueOf(sp.getString(KEY_COLOR, null) ?: "") }
-            .getOrDefault(NoiseColor.WHITE)
-        set(value) = sp.edit().putString(KEY_COLOR, value.name).apply()
+    /**
+     * ChromaNoise preset to request on a tap. Empty string means "whatever ChromaNoise
+     * played last" — nft-tag doesn't store the sound itself, ChromaNoise does.
+     */
+    var presetChoice: String
+        get() = sp.getString(KEY_PRESET, "") ?: ""
+        set(value) = sp.edit().putString(KEY_PRESET, value).apply()
 
-    var gain: Float
-        get() = sp.getFloat(KEY_GAIN, 0.6f)
-        set(value) = sp.edit().putFloat(KEY_GAIN, value).apply()
-
-    /** Sleep-timer length in minutes; 0 means "no timer, play until stopped". */
+    /** Sleep-timer length in minutes passed to ChromaNoise; 0 means no timer. */
     var sleepMinutes: Int
         get() = sp.getInt(KEY_SLEEP, 0)
         set(value) = sp.edit().putInt(KEY_SLEEP, value).apply()
@@ -39,8 +38,7 @@ class Prefs(context: Context) {
     companion object {
         private const val KEY_UID = "paired_uid"
         private const val KEY_LOCK = "lock_to_tag"
-        private const val KEY_COLOR = "noise_color"
-        private const val KEY_GAIN = "gain"
+        private const val KEY_PRESET = "preset_choice"
         private const val KEY_SLEEP = "sleep_minutes"
         private const val KEY_THEME = "theme_mode"
     }
