@@ -15,12 +15,13 @@ actual noise, volume and presets.
 ## What it does
 
 - **Tap to play** — tapping the tag tells ChromaNoise to start.
-- **Pick a sound** — "Last used" (whatever ChromaNoise played last) or a built-in
-  preset (White / Pink / Brown / Grey / Blue / Violet), passed through on the tap.
-- **Sleep timer** — off, 15/30/45/60/90 min, armed in ChromaNoise.
 - **Pair one tag** — lock the trigger to a single tag's UID, or leave it open so any
   tapped tag works.
 - **Theme** — system / light / dark / pure-black, with a dark app icon in dark mode.
+
+**What it plays and when it stops** live in ChromaNoise, not here — set the preset, the
+auto-off timer and an optional nightly auto-start under **Tag & schedule** in ChromaNoise.
+nft-tag just fires the trigger; ChromaNoise decides the rest.
 
 ## Requires
 

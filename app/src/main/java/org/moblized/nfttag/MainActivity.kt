@@ -30,13 +30,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.moblized.nfttag.ui.NftTagTheme
@@ -60,19 +58,21 @@ class MainActivity : ComponentActivity() {
         setContent {
             NftTagTheme(themeMode.value) {
                 AppScreen(
-                    prefs = prefs,
                     pairedUid = pairedUid.value,
                     pairingArmed = pairingArmed.value,
+                    lockToTag = prefs.lockToTag,
+                    themeMode = themeMode.value,
                     onArmPairing = { pairingArmed.value = true },
                     onForgetTag = {
                         prefs.pairedUid = null
                         pairedUid.value = null
                     },
+                    onLockChange = { prefs.lockToTag = it },
                     onThemeChange = {
                         prefs.themeMode = it
                         themeMode.value = it
                     },
-                    onTrigger = { triggerChroma(prefs.presetChoice, prefs.sleepMinutes) },
+                    onTrigger = { triggerChroma() },
                 )
             }
         }
@@ -135,16 +135,17 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        triggerChroma(prefs.presetChoice, prefs.sleepMinutes)
+        triggerChroma()
     }
 
-    /** Hand off to ChromaNoise's no-UI entry point to actually make the sound. */
-    private fun triggerChroma(preset: String, minutes: Int) {
+    /**
+     * Hand off to ChromaNoise's no-UI entry point. No extras — ChromaNoise plays whatever
+     * its own Tag & schedule settings say, so the sound lives in one place.
+     */
+    private fun triggerChroma() {
         val i = Intent().apply {
             setClassName(CHROMA_PKG, CHROMA_TRIGGER)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (preset.isNotEmpty()) putExtra(EXTRA_PRESET, preset)
-            if (minutes > 0) putExtra(EXTRA_TIMER, minutes)
         }
         try {
             startActivity(i)
@@ -158,33 +159,25 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val CHROMA_PKG = "app.chromanoise"
         const val CHROMA_TRIGGER = "app.chromanoise.playback.PlayTriggerActivity"
-        const val EXTRA_PRESET = "app.chromanoise.extra.PRESET"
-        const val EXTRA_TIMER = "app.chromanoise.extra.TIMER_MINUTES"
     }
 }
 
 private fun ByteArray.toHex(): String =
     joinToString("") { "%02X".format(it) }
 
-private val SLEEP_OPTIONS = listOf(0, 15, 30, 45, 60, 90)
-
-// "" = whatever ChromaNoise played last; the rest are its built-in presets.
-private val PRESETS = listOf("" to "Last used") +
-    listOf("White", "Pink", "Brown", "Grey", "Blue", "Violet").map { it to it }
-
 @Composable
 private fun AppScreen(
-    prefs: Prefs,
     pairedUid: String?,
     pairingArmed: Boolean,
+    lockToTag: Boolean,
+    themeMode: ThemeMode,
     onArmPairing: () -> Unit,
     onForgetTag: () -> Unit,
+    onLockChange: (Boolean) -> Unit,
     onThemeChange: (ThemeMode) -> Unit,
     onTrigger: () -> Unit,
 ) {
-    var preset by remember { mutableStateOf(prefs.presetChoice) }
-    var sleep by remember { mutableIntStateOf(prefs.sleepMinutes) }
-    var lockToTag by remember { mutableStateOf(prefs.lockToTag) }
+    var lock by remember { mutableStateOf(lockToTag) }
 
     Scaffold { pad ->
         Column(
@@ -197,8 +190,9 @@ private fun AppScreen(
         ) {
             Text("nft-tag", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(
-                "Tap your bedside tag to start white noise in ChromaNoise. The screen has to " +
-                    "be on, so tap as you set the phone down to charge.",
+                "Tap your bedside tag to start ChromaNoise. What it plays and when it stops " +
+                    "is set in ChromaNoise (Tag & schedule). The screen has to be on, so tap as " +
+                    "you set the phone down to charge.",
                 style = MaterialTheme.typography.bodyMedium,
             )
 
@@ -209,33 +203,6 @@ private fun AppScreen(
                 Text("Test trigger", style = MaterialTheme.typography.titleMedium)
             }
 
-            // Which sound ChromaNoise should play
-            Section("Play") {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PRESETS.forEach { (value, label) ->
-                        FilterChip(
-                            selected = preset == value,
-                            onClick = { preset = value; prefs.presetChoice = value },
-                            label = { Text(label) },
-                        )
-                    }
-                }
-            }
-
-            // Sleep timer handed to ChromaNoise
-            Section("Sleep timer") {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SLEEP_OPTIONS.forEach { m ->
-                        FilterChip(
-                            selected = sleep == m,
-                            onClick = { sleep = m; prefs.sleepMinutes = m },
-                            label = { Text(if (m == 0) "Off" else "$m m") },
-                        )
-                    }
-                }
-            }
-
-            // Pairing
             Section("Bedside tag") {
                 Text(
                     pairedUid?.let { "Paired: $it" } ?: "No tag paired yet",
@@ -257,18 +224,17 @@ private fun AppScreen(
                 ) {
                     Text("Only my paired tag triggers", style = MaterialTheme.typography.bodyMedium)
                     Switch(
-                        checked = lockToTag,
-                        onCheckedChange = { lockToTag = it; prefs.lockToTag = it },
+                        checked = lock,
+                        onCheckedChange = { lock = it; onLockChange(it) },
                     )
                 }
             }
 
-            // Theme
             Section("Theme") {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ThemeMode.entries.forEach { t ->
                         FilterChip(
-                            selected = prefs.themeMode == t,
+                            selected = themeMode == t,
                             onClick = { onThemeChange(t) },
                             label = { Text(t.name.lowercase().replaceFirstChar { it.uppercase() }) },
                         )
