@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -165,6 +166,7 @@ class MainActivity : ComponentActivity() {
 private fun ByteArray.toHex(): String =
     joinToString("") { "%02X".format(it) }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AppScreen(
     pairedUid: String?,
